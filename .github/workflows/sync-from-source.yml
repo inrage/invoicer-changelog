@@ -1,0 +1,53 @@
+name: Sync changelog from invoicer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch whats-new.json from invoicer
+        run: |
+          curl -fsSL -o /tmp/whats-new.json \
+            "https://raw.githubusercontent.com/inrage/invoicer/main/frontend/data/whats-new.json"
+
+      - name: Generate CHANGELOG.md
+        run: |
+          node <<'NODE' > CHANGELOG.md
+          const fs = require("fs");
+          const data = JSON.parse(fs.readFileSync("/tmp/whats-new.json", "utf8"));
+          const lines = [];
+          lines.push("# Changelog Invoicer\n");
+          lines.push("Toutes les nouveautés livrées en production sur [Invoicer](https://invoicer.fr).\n");
+          lines.push("Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).\n");
+          lines.push("\n---\n");
+          for (const entry of data.entries) {
+            lines.push(`\n## ${entry.date} — ${entry.title}\n`);
+            lines.push(`${entry.summary}\n`);
+            lines.push("\n<details><summary>Détails</summary>\n\n");
+            lines.push(entry.description.replace(/\]\(\//g, "](https://invoicer.fr/"));
+            lines.push("\n\n</details>\n");
+          }
+          lines.push("\n---\n");
+          lines.push("📝 La liste est aussi disponible dans l'application via l'icône **Quoi de neuf**.\n");
+          process.stdout.write(lines.join(""));
+          NODE
+
+      - name: Commit changes if any
+        run: |
+          git config user.name "invoicer-changelog-bot"
+          git config user.email "bot@inrage.fr"
+          if [[ -n "$(git status --porcelain CHANGELOG.md)" ]]; then
+            git add CHANGELOG.md
+            git commit -m "chore: sync changelog from invoicer ($(date -I))"
+            git push
+          else
+            echo "No changes."
+          fi
